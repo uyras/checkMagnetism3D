@@ -11,28 +11,59 @@ void moveSystemPosRandomly(PartArray* sys, double d){
     Vect dir; //направление, в которое двигать частицу.
     for(int i=0;i<sys->count();i++){
         double longitude = ((double)config::Instance()->rand()/(double)config::Instance()->rand_max) * 2. * M_PI;
-        dir.x = d * cos(longitude);
-        dir.y = d * sin(longitude);
-        dir.z = 0;
+        double lattitude;
+        if (config::Instance()->U2D)
+            lattitude=0; // если частица 2-х мерная то угол отклонения должен быть 0
+        else
+            lattitude=(double)config::Instance()->rand()/(double)config::Instance()->rand_max*2.-1.;
+        dir.x = d * cos(longitude) * sqrt(1-lattitude*lattitude);
+        dir.y = d * sin(longitude) * sqrt(1-lattitude*lattitude);
+        dir.z = 0 * lattitude;
         sys->parts[i]->pos += dir;
     }
 }
 
 void moveSystemMRandomly(PartArray* sys, double fi){
-    double side = 1.;
-    double oldFi;
+    if (config::Instance()->U2D){
+        double side = 1.;
+        double oldFi;
 
-    for(int i=0;i<sys->count();i++){
-        double oldLen = sys->parts[i]->m.length();
-        if ((double)config::Instance()->rand()/(double)config::Instance()->rand_max>0.5)
-            side = -1.;
-        else
-            side = 1.;
-        oldFi = sys->parts[i]->m.angle();
-        double longitude = oldFi+(fi*side);
-        sys->parts[i]->m.x = oldLen * cos(longitude);
-        sys->parts[i]->m.y = oldLen * sin(longitude);
-        sys->parts[i]->m.z = 0;
+        for(int i=0;i<sys->count();i++){
+            double oldLen = sys->parts[i]->m.length();
+            if ((double)config::Instance()->rand()/(double)config::Instance()->rand_max>0.5)
+                side = -1.;
+            else
+                side = 1.;
+            oldFi = sys->parts[i]->m.angle();
+            double longitude = oldFi+(fi*side);
+            sys->parts[i]->m.x = oldLen * cos(longitude);
+            sys->parts[i]->m.y = oldLen * sin(longitude);
+            sys->parts[i]->m.z = 0;
+        }
+    } else {
+        for(int i=0;i<sys->count();i++){
+            Part* temp = sys->parts[i];
+            Vect ox,oy,oz,newV;
+            //1. нормализуем вектор частицы, считаем его длину
+            oz = temp->m.normalize();
+
+            //2. генерируем ортонормированный базис, где oz-магнитный момент частицы
+            oy = Vect::crossProduct(oz,Vect(0.5,0,0));
+            ox = Vect::normal(oy,oz);
+            oy = Vect::normal(ox,oz);
+
+            //3. генерируем направление сдвига вектора
+            double longitude = ((double)config::Instance()->rand()/(double)config::Instance()->rand_max) * 2. * M_PI; //[0;2pi]
+
+            //4. получаем положение вдоль оси z
+            //double lattitude=(double)config::Instance()->rand()/(double)config::Instance()->rand_max*(1-cos(fi))+cos(fi); //[cos(fi);1]
+            double lattitude=cos(fi); //задано параметром функции, cos(fi)
+
+            //5. получаем сдвинутый вектор
+            newV = oz*lattitude + (ox*cos(longitude) + oy*sin(longitude)) * sqrt(1-lattitude*lattitude);
+            newV *= temp->m.length();
+            temp->m = newV;
+        }
     }
 }
 
@@ -42,7 +73,8 @@ int main(int argc, char** argv)
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
-    if (size==1){
+
+    if (!size==1){
         cout<<"invalid process count"<<endl;
         MPI_Finalize();
         return 0;
@@ -53,7 +85,7 @@ int main(int argc, char** argv)
 
     //директивы
     int x=3, y=3, z=3, //количество частиц в линейке
-            experimentCount=10;
+            experimentCount=100;
     double intervalCount = 100.;
     double space = config::Instance()->partR*4.;//расстояние между центрами частиц
     double dMax = space/2.-config::Instance()->partR;
@@ -121,7 +153,7 @@ int main(int argc, char** argv)
         //cout<<rank<<": send code "<<exitCode<<endl;
 
     } else {
-        ofstream f("checkMagnetism2DRes_3x7.dat");
+        ofstream f("checkMagnetism3DRes_3x3.dat");
         f<<"d\tfi\tanom\tcount"<<endl;
 
         MPI_Status stat;
