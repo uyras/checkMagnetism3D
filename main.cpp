@@ -67,6 +67,25 @@ void moveSystemMRandomly(PartArray* sys, double fi){
     }
 }
 
+void bench(PartArray* sys, int replicas, int steps, int n, int size, int rank){
+    if (rank==0){
+        cout<<"=====start=benchmark====="<<endl;
+        moveSystemMRandomly(sys,M_PI_2);
+        clock_t t = clock();
+        sys->setToPTGroundState(replicas, steps);
+        t = clock()-t;
+        float secs = t/CLOCKS_PER_SEC;
+        cout<<"one operation: "<<secs<<" sec"<<endl;
+        cout<<n<<" operations: "<<endl;
+        cout << (secs*(float)n)/(float)(size-1) <<" secs"<<endl;
+        cout << (secs*(float)n)/(float)(size-1)/86400. <<" days"<<endl;
+        cout << (secs*(float)n)/(float)(size-1)/86400./30. <<" month"<<endl;
+        cout << (secs*(float)n)/(float)(size-1)/86400./30./12. <<" years"<<endl;
+        cout<<"========================="<<endl;
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+}
+
 int main(int argc, char** argv)
 {
     MPI_Init (&argc, &argv);	/* starts MPI */
@@ -74,8 +93,17 @@ int main(int argc, char** argv)
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    if (!size==1){
+    if (size<=1){
         cout<<"invalid process count"<<endl;
+        MPI_Finalize();
+        return 0;
+    }
+
+    if (argc<5){
+        if (rank==0){
+            cout<<"invalid parameters. valid is:"<<endl;
+            cout<<"./program experiments replicas steps intervals"<<endl;
+        }
         MPI_Finalize();
         return 0;
     }
@@ -85,8 +113,10 @@ int main(int argc, char** argv)
 
     //директивы
     int x=3, y=3, z=3, //количество частиц в линейке
-            experimentCount=100;
-    double intervalCount = 100.;
+            experimentCount=atoi(argv[1]),
+            replicas=atoi(argv[2]), //количество реплик PT
+            steps=atoi(argv[3]); //количество шагов PT
+    double intervalCount = atoi(argv[4]);
     double space = config::Instance()->partR*4.;//расстояние между центрами частиц
     double dMax = space/2.-config::Instance()->partR;
     int exitCode = -1; //код выхода из системы
@@ -98,6 +128,8 @@ int main(int argc, char** argv)
     //бросаем частицы в шахматном порядке на линию и запоминаем состояние
     example->dropChain(space);
     StateMachineFree oldState(example->state);
+
+    bench(example->copy(),replicas, steps,intervalCount*intervalCount*experimentCount,size,rank); //тестируем скорость на активных настройках
 
     if (rank!=0){
         //все задачи берут свои рассчеты и выполняют
@@ -117,7 +149,7 @@ int main(int argc, char** argv)
                         moveSystemMRandomly(sys,m);
                         moveSystemPosRandomly(sys,d);
 
-                        sys->setToGroundState();
+                        sys->setToPTGroundState(replicas,steps);
 
                         if (!(oldState==sys->state)){
                             anomCount++;
@@ -153,6 +185,7 @@ int main(int argc, char** argv)
         //cout<<rank<<": send code "<<exitCode<<endl;
 
     } else {
+        cout<<"program has init"<<endl;
         ofstream f("checkMagnetism3DRes_3x3.dat");
         f<<"d\tfi\tanom\tcount"<<endl;
 
