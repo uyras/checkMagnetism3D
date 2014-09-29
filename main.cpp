@@ -102,7 +102,7 @@ int main(int argc, char** argv)
     if (argc<5){
         if (rank==0){
             cout<<"invalid parameters. valid is:"<<endl;
-            cout<<"./program experiments replicas steps intervals"<<endl;
+            cout<<"./program_name.exe <experiments> <replicas> <steps> <intervals>"<<endl;
         }
         MPI_Finalize();
         return 0;
@@ -150,7 +150,6 @@ int main(int argc, char** argv)
                         moveSystemPosRandomly(sys,d);
 
                         sys->setToPTGroundState(replicas,steps);
-
                         if (!(oldState==sys->state)){
                             anomCount++;
                         }
